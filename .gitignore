@@ -1,0 +1,13 @@
+bin/
+obj/
+
+*.mdp
+
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+
+*.nuget.g.props
+*.nuget.g.targets
+project.assets.json
