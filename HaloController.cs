@@ -170,6 +170,8 @@ public class HaloController : MonoBehaviour
     {
         float stepDeg  = Mathf.Max(1f, s.StepDegrees);
         float stepTime = Mathf.Max(0.05f, s.StepTime);
+        float stepRest = Mathf.Max(0f, s.StepRest);
+        float cycle    = stepTime + stepRest;
 
         if (Mathf.Abs(stepDeg - _lastStepDegrees) > 0.01f || !_stepActive)
         {
@@ -180,7 +182,7 @@ public class HaloController : MonoBehaviour
             _stepActive = true;
         }
 
-        _stepT += dt / stepTime;
+        _stepT += dt / cycle;
 
         if (_stepT >= 1f)
         {
@@ -190,7 +192,10 @@ public class HaloController : MonoBehaviour
             _stepT    -= 1f;
         }
 
-        _angle = Mathf.LerpAngle(_stepFrom, _stepTo, ClockEase(Mathf.Clamp01(_stepT)));
+        float moveT = _stepT * cycle;
+        float t = moveT >= stepTime ? 1f : ClockEase(moveT / stepTime);
+
+        _angle = Mathf.LerpAngle(_stepFrom, _stepTo, t);
     }
 
     private static float ClockEase(float t)

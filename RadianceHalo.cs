@@ -24,8 +24,8 @@ public class RadianceHalo : Mod, ICustomMenuMod, ITogglableMod, IGlobalSettings<
     private static bool _built;
     private static readonly Dictionary<string, Element> Rows = new Dictionary<string, Element>();
 
-private static readonly string[] SpeedRows   = { "optSpeed", "optAccel" };
-    private static readonly string[] SteppedRows = { "optStepSize", "optStepTime" };
+    private static readonly string[] SpeedRows   = { "optSpeed", "optAccel" };
+    private static readonly string[] SteppedRows = { "optStepSize", "optStepTime", "optStepRest" };
 
     public RadianceHalo() : base("Radiance Halo")
     {
@@ -143,6 +143,12 @@ Row("optStepTime", new CustomSlider(
                 v => Set(x => x.StepTime = v),
                 () => HaloConfig.Current.StepTime,
                 0.2f, 4f, false)),
+
+            Row("optStepRest", new CustomSlider(
+                "Step Rest",
+                v => Set(x => x.StepRest = v),
+                () => HaloConfig.Current.StepRest,
+                0f, 4f, false)),
 
             Row("optAlpha", new CustomSlider(
                 "Alpha",

@@ -9,15 +9,16 @@ public enum HaloMode
 public class HaloSettings
 {
     public bool Enabled = true;
-    public HaloMode Mode = HaloMode.Normal;
-    public float Speed = 15f;
+    public HaloMode Mode = HaloMode.Stepped;
+    public float Speed = 75.6997147f;
     public bool Reverse = false;
     public float Acceleration = 120f;
 
     public float StepDegrees = 90f;
-    public float StepTime = 1f;
+    public float StepTime = 0.246941909f;
+    public float StepRest = 1.49248767f;
 
-public float Alpha = 1f;
+    public float Alpha = 0.9f;
     public float Scale = 1f;
 
     public bool LiveReload = false;
@@ -32,6 +33,7 @@ public float Alpha = 1f;
 
         StepDegrees = Fix(StepDegrees, 15f, 180f, 90f);
         StepTime    = Fix(StepTime,     0.2f,   4f,  1f);
+        StepRest    = Fix(StepRest,     0f,     4f,  0.1f);
     }
 
     public bool UsesSpeed(HaloMode mode)
