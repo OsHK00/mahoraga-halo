@@ -4,28 +4,29 @@
     <ExportDir>C:\GOG Games</ExportDir>
   </PropertyGroup>
   <PropertyGroup>
-    <RootNamespace>RadianceHalo</RootNamespace>
-    <AssemblyName>RadianceHalo</AssemblyName>
+    <RootNamespace>mahoraga_halo</RootNamespace>
+    <AssemblyName>mahoraga-halo</AssemblyName>
     <TargetFramework>net472</TargetFramework>
-    <AssemblyTitle>RadianceHalo</AssemblyTitle>
-    <Product>RadianceHalo</Product>
+    <AssemblyTitle>mahoraga-halo</AssemblyTitle>
+    <Product>mahoraga-halo</Product>
     <Description>A Hollow Knight mod that reskins and re-animates the Absolute Radiance halo.</Description>
     <Copyright>Copyright © 2023</Copyright>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2</FileVersion>
+    <Version>1.0.2</Version>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <Target Name="CopyMod" AfterTargets="PostBuildEvent">
     <MakeDir Directories="$(HollowKnightRefs)/Mods/$(TargetName)/" />
 
-    <Copy SourceFiles="$(TargetPath);$(TargetDir)/$(TargetName).pdb;Resources/halo.png" DestinationFolder="$(HollowKnightRefs)/Mods/$(TargetName)/" />
+    <Copy SourceFiles="$(TargetPath);$(TargetDir)/$(TargetName).pdb;Resources/halo.png;Resources/wheel.mp3" DestinationFolder="$(HollowKnightRefs)/Mods/$(TargetName)/" />
 
     <RemoveDir Condition="Exists('$(ExportDir)/$(TargetName)/zip/')" Directories="$(ExportDir)/$(TargetName)/zip/" />
     <MakeDir Directories="$(ExportDir)/$(TargetName)/" />
     <MakeDir Directories="$(ExportDir)/$(TargetName)/zip/" />
 
-    <Copy SourceFiles="README.md;Resources/halo.png;$(TargetPath);$(TargetDir)/$(TargetName).pdb" DestinationFolder="$(ExportDir)/$(TargetName)/zip/" />
+    <Copy SourceFiles="README.md;Resources/halo.png;Resources/wheel.mp3;$(TargetPath);$(TargetDir)/$(TargetName).pdb" DestinationFolder="$(ExportDir)/$(TargetName)/zip/" />
     <Delete Files="$(ExportDir)/$(TargetName)/$(TargetName).zip" />
     <ZipDirectory SourceDirectory="$(ExportDir)/$(TargetName)/zip/" DestinationFile="$(ExportDir)/$(TargetName)/$(TargetName).zip" />
     <RemoveDir Directories="$(ExportDir)/$(TargetName)/zip/" />
@@ -289,6 +290,7 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\halo.png" />
+    <EmbeddedResource Include="Resources\wheel.mp3" />
     <None Include=".gitignore" />
     <None Include="README.md" />
   </ItemGroup>

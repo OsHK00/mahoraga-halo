@@ -1,27 +1,27 @@
-# Radiance Halo
+# Mahoraga Halo
 
-Hollow Knight mod that replaces the Absolute Radiance halo with a custom PNG and
-re-animates its rotation.
+Hollow Knight mod that replaces the Absolute Radiance halo with a custom PNG (mahoraga crown)
 
 ## Dependencies
 
 * Satchel
 * ModCommon
 
-## Texture
+## Install
 
-You can replace the halo like this:
+Copy the contents of `mahoraga-halo.zip` into
+`Hollow Knight_Data\Managed\Mods\mahoraga-halo\`, so you end up with:
 
-`halo.png` sits next to the DLL, in
-`Hollow Knight_Data\Managed\Mods\RadianceHalo\`
+```
+Mods\mahoraga-halo\mahoraga-halo.dll
+Mods\mahoraga-halo\halo.png
+Mods\mahoraga-halo\wheel.mp3
+```
 
-If the PNG cannot be read, the mod keeps the original texture,
-so the halo never disappears because of a bad file.
+You can replace the halo texture and the sound
 
 ## Build
 
 ```powershell
 dotnet build RadianceHalo.csproj
 ```
-
-Settings are saved by the modding API to `RadianceHalo.GlobalSettings.json`.

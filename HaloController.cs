@@ -1,23 +1,37 @@
 using System.Collections.Generic;
+using HutongGames.PlayMaker;
 using UnityEngine;
 
 public class HaloController : MonoBehaviour
 {
     public static readonly List<HaloController> Active = new List<HaloController>();
 
+    public const string PhaseFsmName = "Attack Choices";
+    public const string ArenaVarName = "Arena";
+    public const int ArenaPlatforms = 2;
+
+    private const float PlatformBlend = 1.5f;
+    private const float StepSoundOffset = -0.1f;
+
     private SpriteRenderer _sr;
     private Sprite _originalSprite;
     private Sprite _customSprite;
     private Color _originalColor;
     private Vector3 _baseScale;
-    private bool _reportedSwap;
+
+    private PlayMakerFSM _phaseFsm;
+    private FsmInt _arena;
+    private float _phaseRetry;
+    private bool _platformActive;
+    private float _scaleMul = 1f;
 
     private float _angle;
-    private float _currentSpeed;
     private float _stepT;
     private float _stepFrom;
     private float _stepTo;
     private bool _stepActive;
+    private bool _stepPending;
+    private float _stepHitT;
     private float _lastStepDegrees = -1f;
 
     public static HaloController Attach(GameObject haloGO)
@@ -34,7 +48,7 @@ public class HaloController : MonoBehaviour
         _sr = GetComponent<SpriteRenderer>();
         if (_sr == null)
         {
-            Debug.Log("[RadianceHalo] Halo has no SpriteRenderer.");
+            Debug.Log("[mahoraga-halo] Halo has no SpriteRenderer.");
             enabled = false;
             return;
         }
@@ -43,10 +57,47 @@ public class HaloController : MonoBehaviour
         _originalColor  = _sr.color;
         _baseScale      = transform.localScale;
         _angle          = transform.localEulerAngles.z;
-        _currentSpeed   = 0f;
+        _scaleMul       = 1f;
+
+        LocatePhaseVariable();
+        LogPhaseHook();
 
         Active.Add(this);
         ApplyCustomSprite();
+    }
+
+    private void LocatePhaseVariable()
+    {
+        _phaseFsm = null;
+        _arena    = null;
+
+        if (transform.parent == null) return;
+
+        _phaseFsm = PlayMakerFSM.FindFsmOnGameObject(transform.parent.gameObject, PhaseFsmName);
+        if (_phaseFsm == null) return;
+
+        _arena = _phaseFsm.FsmVariables.GetFsmInt(ArenaVarName);
+    }
+
+    private void UpdatePhase(float dt, HaloSettings s)
+    {
+        if (!s.PhaseAware)
+        {
+            _platformActive = false;
+            return;
+        }
+
+        if (_arena == null || _phaseFsm == null)
+        {
+            _phaseRetry -= dt;
+            if (_phaseRetry <= 0f)
+            {
+                _phaseRetry = 0.5f;
+                LocatePhaseVariable();
+            }
+        }
+
+        _platformActive = _arena != null && _arena.Value == ArenaPlatforms;
     }
 
     private void OnDestroy()
@@ -81,37 +132,19 @@ public class HaloController : MonoBehaviour
 
         _sr.sprite = _customSprite;
 
-        if (previous != null) Destroy(previous);
-
-        LogState(tex, ppu);
+if (previous != null) Destroy(previous);
     }
 
-    private void LogState(Texture2D tex, float ppu)
+    private void LogPhaseHook()
     {
-        RadianceHalo mod = RadianceHalo.Instance;
-        if (mod == null) return;
-
-        HaloSettings s = HaloConfig.Current;
-
-        mod.Log(
-            "Halo: texture " + tex.width + "x" + tex.height
-            + ", ppu " + ppu.ToString("F2")
-            + ", world " + (tex.width / ppu).ToString("F2") + "x" + (tex.height / ppu).ToString("F2")
-            + " (original world " + _originalSprite.bounds.size.x.ToString("F2") + ")"
-            + ", alpha " + s.Alpha.ToString("F2")
-            + ", scale " + s.Scale.ToString("F2")
-            + ", mode " + s.Mode);
+        RadianceHalo.Trace("Halo attached: arena " + (_arena != null ? _arena.Value.ToString() : "?")
+            + ", platforms " + _platformActive
+            + ", phaseFsm " + (_phaseFsm != null));
     }
 
     private void ReassertSprite(Sprite sprite)
     {
         if (_sr == null || _sr.sprite == sprite) return;
-
-        if (!_reportedSwap)
-        {
-            _reportedSwap = true;
-            Debug.Log("[RadianceHalo] Halo sprite was replaced externally, re-applying.");
-        }
 
         _sr.sprite = sprite;
     }
@@ -125,7 +158,7 @@ public class HaloController : MonoBehaviour
 
         if (!s.Enabled)
         {
-            _currentSpeed = 0f;
+            _platformActive = false;
             ReassertSprite(_originalSprite);
             if (_sr != null) _sr.color = _originalColor;
             transform.localScale = _baseScale;
@@ -134,36 +167,13 @@ public class HaloController : MonoBehaviour
 
         ApplyCustomSprite();
 
-        float dir = s.Reverse ? -1f : 1f;
+        UpdatePhase(dt, s);
 
-        if (s.Mode == HaloMode.Stepped)
-        {
-            _currentSpeed = 0f;
-            TickStepped(dt, s, dir);
-        }
-        else
-        {
-            UpdateSpeed(s, dt);
-            _angle += _currentSpeed * dir * dt;
-        }
+        TickStepped(dt, s, s.Reverse ? -1f : 1f);
 
         ApplyRotation();
-        ApplyScale(s);
+        ApplyScale(dt, s);
         ApplyAlpha(dt, s);
-    }
-
-    private void UpdateSpeed(HaloSettings s, float dt)
-    {
-        float target = s.Speed;
-        float accel  = Mathf.Max(0f, s.Acceleration);
-
-        if (accel <= 0f)
-        {
-            _currentSpeed = target;
-            return;
-        }
-
-        _currentSpeed = Mathf.MoveTowards(_currentSpeed, target, accel * dt);
     }
 
     private void TickStepped(float dt, HaloSettings s, float dir)
@@ -180,6 +190,7 @@ public class HaloController : MonoBehaviour
             _stepTo     = _stepFrom + stepDeg * dir;
             _stepT      = 0f;
             _stepActive = true;
+            ArmStepSound(stepTime);
         }
 
         _stepT += dt / cycle;
@@ -190,12 +201,32 @@ public class HaloController : MonoBehaviour
             _stepFrom = _stepTo;
             _stepTo   = _stepFrom + stepDeg * dir;
             _stepT    -= 1f;
+            ArmStepSound(stepTime);
         }
 
         float moveT = _stepT * cycle;
         float t = moveT >= stepTime ? 1f : ClockEase(moveT / stepTime);
 
         _angle = Mathf.LerpAngle(_stepFrom, _stepTo, t);
+
+        if (_stepPending && moveT >= _stepHitT)
+        {
+            _stepPending = false;
+            PlayStepSound(s);
+        }
+    }
+
+    private void ArmStepSound(float stepTime)
+    {
+        _stepPending = true;
+        _stepHitT = Mathf.Max(0f, stepTime + StepSoundOffset);
+    }
+
+    private void PlayStepSound(HaloSettings s)
+    {
+        if (!s.StepSound || s.StepSoundVolume <= 0f) return;
+
+        HaloAudioPlayer.Ensure().Play(s.StepSoundVolume);
     }
 
     private static float ClockEase(float t)
@@ -211,9 +242,17 @@ public class HaloController : MonoBehaviour
         transform.localRotation = Quaternion.Euler(0f, 0f, _angle);
     }
 
-    private void ApplyScale(HaloSettings s)
+    private void ApplyScale(float dt, HaloSettings s)
     {
-        transform.localScale = new Vector3(_baseScale.x * s.Scale, _baseScale.y * s.Scale, _baseScale.z);
+        float target   = _platformActive ? Mathf.Max(1f, s.PlatformScale) : 1f;
+        float duration = PlatformBlend;
+        float rate     = 3f / duration;
+
+        _scaleMul = Mathf.Lerp(_scaleMul, target, 1f - Mathf.Exp(-rate * dt));
+
+        float mul = s.Scale * _scaleMul;
+
+        transform.localScale = new Vector3(_baseScale.x * mul, _baseScale.y * mul, _baseScale.z);
     }
 
     private void ApplyAlpha(float dt, HaloSettings s)
@@ -226,6 +265,9 @@ public class HaloController : MonoBehaviour
 
     public void Restore()
     {
+        _platformActive = false;
+        _scaleMul = 1f;
+
         if (_sr != null)
         {
             _sr.sprite = _originalSprite;

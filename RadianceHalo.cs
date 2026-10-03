@@ -7,7 +7,7 @@ using Modding;
 using Satchel.BetterMenus;
 using UnityEngine;
 
-public class RadianceHalo : Mod, ICustomMenuMod, ITogglableMod, IGlobalSettings<HaloSettings>
+public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
 {
     public const string BossName    = "Absolute Radiance";
     public const string HaloName    = "Halo";
@@ -16,18 +16,24 @@ public class RadianceHalo : Mod, ICustomMenuMod, ITogglableMod, IGlobalSettings<
 
     public static RadianceHalo Instance { get; private set; }
 
-    public Texture2D HaloTexture { get; private set; }
+    public static void Trace(string message)
+    {
+        if (Instance != null) Instance.Log(message);
+        else UnityEngine.Debug.Log("[mahoraga-halo] " + message);
+    }
 
-    private DateTime _textureStamp = DateTime.MinValue;
+    public Texture2D HaloTexture { get; private set; }
 
     private static Menu _menu;
     private static bool _built;
     private static readonly Dictionary<string, Element> Rows = new Dictionary<string, Element>();
 
-    private static readonly string[] SpeedRows   = { "optSpeed", "optAccel" };
-    private static readonly string[] SteppedRows = { "optStepSize", "optStepTime", "optStepRest" };
+    private static readonly string[] PhaseRows = { "optPlatformScale" };
+    private static readonly string[] SoundRows = { "optSoundVolume" };
 
-    public RadianceHalo() : base("Radiance Halo")
+    public const string ModName = "mahoraga-halo";
+
+    public RadianceHalo() : base(ModName)
     {
         HaloConfig.SaveHook = SaveGlobalSettings;
     }
@@ -49,16 +55,17 @@ public class RadianceHalo : Mod, ICustomMenuMod, ITogglableMod, IGlobalSettings<
             Log("Could not load " + TextureName + ", mod stays inactive.");
             return;
         }
-        Log("Halo texture loaded: " + HaloTexture.width + "x" + HaloTexture.height);
 
-        GameObject watchdog = new GameObject("RadianceHaloWatchdog");
+        GameObject watchdog = new GameObject("mahoraga-halo-watchdog");
         UnityEngine.Object.DontDestroyOnLoad(watchdog);
         watchdog.AddComponent<HaloWatchdog>();
+
+        HaloAudioPlayer.Ensure();
     }
 
     public override string GetMenuButtonText()
     {
-        return "Radiance Halo";
+        return ModName;
     }
 
     public void OnLoadGlobal(HaloSettings settings)
@@ -101,36 +108,17 @@ public class RadianceHalo : Mod, ICustomMenuMod, ITogglableMod, IGlobalSettings<
         {
             Row("optEnabled", new HorizontalOption(
                 "Enabled",
-                "Halo sprite and animation on or off",
+                "Halo sprite and animation",
                 new[] { "OFF", "ON" },
                 i => Set(v => v.Enabled = i == 1),
                 () => HaloConfig.Current.Enabled ? 1 : 0)),
 
-            Row("optMode", new HorizontalOption(
-                "Mode",
-                "How the halo moves",
-                new[] { "Normal", "Stepped" },
-                i => Set(v => v.Mode = (HaloMode)i),
-                () => (int)HaloConfig.Current.Mode)),
-
-            Row("optSpeed", new CustomSlider(
-                "Speed",
-                v => Set(x => x.Speed = v),
-                () => HaloConfig.Current.Speed,
-                0f, 90f, false)),
-
             Row("optDirection", new HorizontalOption(
                 "Direction",
-                "Flips the spin in any mode",
+                "Flips the direction of the steps",
                 new[] { "NORMAL", "REVERSED" },
                 i => Set(v => v.Reverse = i == 1),
                 () => HaloConfig.Current.Reverse ? 1 : 0)),
-
-            Row("optAccel", new CustomSlider(
-                "Acceleration",
-                v => Set(x => x.Acceleration = v),
-                () => HaloConfig.Current.Acceleration,
-                0f, 360f, false)),
 
             Row("optStepSize", new CustomSlider(
                 "Step Size",
@@ -138,7 +126,7 @@ public class RadianceHalo : Mod, ICustomMenuMod, ITogglableMod, IGlobalSettings<
                 () => HaloConfig.Current.StepDegrees,
                 15f, 180f, true)),
 
-Row("optStepTime", new CustomSlider(
+            Row("optStepTime", new CustomSlider(
                 "Step Time",
                 v => Set(x => x.StepTime = v),
                 () => HaloConfig.Current.StepTime,
@@ -162,12 +150,31 @@ Row("optStepTime", new CustomSlider(
                 () => HaloConfig.Current.Scale,
                 0.5f, 3f, false)),
 
-            Row("optLiveReload", new HorizontalOption(
-                "Live Reload",
-                "Watch halo.png and reload it when it changes, for texture tests",
+            Row("optPhaseAware", new HorizontalOption(
+                "Phase Aware",
+                "Grows the halo during the platform phase",
                 new[] { "OFF", "ON" },
-                i => Set(v => v.LiveReload = i == 1),
-                () => HaloConfig.Current.LiveReload ? 1 : 0)),
+                i => Set(v => v.PhaseAware = i == 1),
+                () => HaloConfig.Current.PhaseAware ? 1 : 0)),
+
+            Row("optPlatformScale", new CustomSlider(
+                "Platform Scale",
+                v => Set(x => x.PlatformScale = v),
+                () => HaloConfig.Current.PlatformScale,
+                1f, 4f, false)),
+
+            Row("optStepSound", new HorizontalOption(
+                "Step Sound",
+                "Plays a sound every time a step lands",
+                new[] { "OFF", "ON" },
+                i => Set(v => v.StepSound = i == 1),
+                () => HaloConfig.Current.StepSound ? 1 : 0)),
+
+            Row("optSoundVolume", new CustomSlider(
+                "Sound Volume",
+                v => Set(x => x.StepSoundVolume = v),
+                () => HaloConfig.Current.StepSoundVolume,
+                0f, 1f, false)),
 
             Row("optReset", new MenuButton(
                 "Reset to defaults",
@@ -180,7 +187,7 @@ Row("optStepTime", new CustomSlider(
                 false)),
         };
 
-        return new Menu("Radiance Halo", elements.ToArray());
+        return new Menu(ModName, elements.ToArray());
     }
 
     private static Element Row(string id, Element element)
@@ -204,10 +211,9 @@ Row("optStepTime", new CustomSlider(
         if (!_built || _menu == null) return;
 
         HaloSettings s = HaloConfig.Current;
-        HaloMode mode  = s.Mode;
 
-SetVisible(SpeedRows,   s.UsesSpeed(mode));
-        SetVisible(SteppedRows, mode == HaloMode.Stepped);
+        SetVisible(PhaseRows, s.PhaseAware);
+        SetVisible(SoundRows, s.StepSound);
 
         _menu.Update();
     }
@@ -230,7 +236,7 @@ SetVisible(SpeedRows,   s.UsesSpeed(mode));
         HaloController.Active.Clear();
     }
 
-private Texture2D LoadPng(string fileName)
+    private Texture2D LoadPng(string fileName)
     {
         Texture2D tex = LoadFromDisk(fileName);
         if (tex != null) return tex;
@@ -259,7 +265,9 @@ private Texture2D LoadPng(string fileName)
             MemoryStream ms = new MemoryStream((int)stream.Length);
             stream.CopyTo(ms);
 
-            return BuildTexture(ms.ToArray());
+            Texture2D embedded = BuildTexture(ms.ToArray());
+            Log("Halo texture loaded from the DLL: " + embedded.width + "x" + embedded.height);
+            return embedded;
         }
         catch (Exception e)
         {
@@ -283,7 +291,6 @@ private Texture2D LoadPng(string fileName)
         try
         {
             Texture2D tex = BuildTexture(File.ReadAllBytes(path));
-            _textureStamp = File.GetLastWriteTimeUtc(path);
             Log("Halo texture loaded from " + path + ": " + tex.width + "x" + tex.height);
             return tex;
         }
@@ -292,36 +299,6 @@ private Texture2D LoadPng(string fileName)
             Log("Error loading '" + path + "': " + e.Message);
             return null;
         }
-    }
-
-    public void ReloadTextureIfChanged()
-    {
-        if (HaloTexture == null) return;
-
-        string path = TexturePath(TextureName);
-        if (path == null || !File.Exists(path)) return;
-
-        DateTime stamp = File.GetLastWriteTimeUtc(path);
-        if (stamp == _textureStamp) return;
-
-        Texture2D next;
-        try
-        {
-            next = BuildTexture(File.ReadAllBytes(path));
-        }
-        catch (Exception e)
-        {
-            Log("Error reloading '" + path + "': " + e.Message);
-            return;
-        }
-
-        Texture2D previous = HaloTexture;
-        HaloTexture    = next;
-        _textureStamp  = stamp;
-
-        if (previous != null) UnityEngine.Object.Destroy(previous);
-
-        Log("Halo texture reloaded: " + next.width + "x" + next.height);
     }
 
     private static Texture2D BuildTexture(byte[] bytes)
@@ -350,24 +327,6 @@ internal class HaloWatchdog : MonoBehaviour
         Transform halo = boss.transform.Find(RadianceHalo.HaloName);
         if (halo == null) return;
 
-if (halo.GetComponent<HaloController>() == null)
-        {
-            RadianceHalo.Instance?.Log("HaloController attached.");
-        }
-
         HaloController.Attach(halo.gameObject);
-    }
-
-    private float _reloadTimer;
-
-    private void LateUpdate()
-    {
-        if (!HaloConfig.Current.LiveReload) return;
-
-        _reloadTimer -= Time.deltaTime;
-        if (_reloadTimer > 0f) return;
-        _reloadTimer = 1f;
-
-        RadianceHalo.Instance?.ReloadTextureIfChanged();
     }
 }
