@@ -35,7 +35,7 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
 
     public RadianceHalo() : base(ModName)
     {
-        HaloConfig.SaveHook = SaveGlobalSettings;
+        HaloConfig.SaveHook = OnSaveGlobal;
     }
 
     public override string GetVersion()
@@ -113,6 +113,19 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
                 i => Set(v => v.Enabled = i == 1),
                 () => HaloConfig.Current.Enabled ? 1 : 0)),
 
+            Row("optHaloMode", new HorizontalOption(
+                "Halo Mode",
+                "Shows both halos, only the custom one, or only the original",
+                new[] { "BOTH", "CUSTOM", "ORIGINAL" },
+                i => Set(v => v.Mode = i == 0 ? HaloMode.Both : i == 1 ? HaloMode.CustomOnly : HaloMode.OriginalOnly),
+                () => (int)HaloConfig.Current.Mode)),
+
+            Row("optOriginalAlpha", new CustomSlider(
+                "Original Opacity",
+                v => Set(x => x.OriginalAlpha = v),
+                () => HaloConfig.Current.OriginalAlpha,
+                0f, 1f, false, "optOriginalAlpha")),
+
             Row("optDirection", new HorizontalOption(
                 "Direction",
                 "Flips the direction of the steps",
@@ -124,31 +137,31 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
                 "Step Size",
                 v => Set(x => x.StepDegrees = v),
                 () => HaloConfig.Current.StepDegrees,
-                15f, 180f, true)),
+                15f, 180f, true, "optStepSize")),
 
             Row("optStepTime", new CustomSlider(
                 "Step Time",
                 v => Set(x => x.StepTime = v),
                 () => HaloConfig.Current.StepTime,
-                0.2f, 4f, false)),
+                0.2f, 4f, false, "optStepTime")),
 
             Row("optStepRest", new CustomSlider(
                 "Step Rest",
                 v => Set(x => x.StepRest = v),
                 () => HaloConfig.Current.StepRest,
-                0f, 4f, false)),
+                0f, 4f, false, "optStepRest")),
 
             Row("optAlpha", new CustomSlider(
                 "Alpha",
                 v => Set(x => x.Alpha = v),
                 () => HaloConfig.Current.Alpha,
-                0.05f, 1f, false)),
+                0.05f, 1f, false, "optAlpha")),
 
             Row("optScale", new CustomSlider(
                 "Scale",
                 v => Set(x => x.Scale = v),
                 () => HaloConfig.Current.Scale,
-                0.5f, 3f, false)),
+                0.5f, 3f, false, "optScale")),
 
             Row("optPhaseAware", new HorizontalOption(
                 "Phase Aware",
@@ -161,7 +174,7 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
                 "Platform Scale",
                 v => Set(x => x.PlatformScale = v),
                 () => HaloConfig.Current.PlatformScale,
-                1f, 4f, false)),
+                1f, 4f, false, "optPlatformScale")),
 
             Row("optStepSound", new HorizontalOption(
                 "Step Sound",
@@ -174,7 +187,7 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
                 "Sound Volume",
                 v => Set(x => x.StepSoundVolume = v),
                 () => HaloConfig.Current.StepSoundVolume,
-                0f, 1f, false)),
+                0f, 1f, false, "optSoundVolume")),
 
             Row("optReset", new MenuButton(
                 "Reset to defaults",
@@ -230,8 +243,13 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
         foreach (HaloController ctrl in new List<HaloController>(HaloController.Active))
         {
             if (ctrl == null) continue;
+
+            GameObject clone = ctrl.CustomHaloObject;
+
             ctrl.Restore();
             UnityEngine.Object.Destroy(ctrl);
+
+            if (clone != null) UnityEngine.Object.Destroy(clone);
         }
         HaloController.Active.Clear();
     }
@@ -327,6 +345,6 @@ internal class HaloWatchdog : MonoBehaviour
         Transform halo = boss.transform.Find(RadianceHalo.HaloName);
         if (halo == null) return;
 
-        HaloController.Attach(halo.gameObject);
+        HaloController.Ensure(halo.gameObject);
     }
 }

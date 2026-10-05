@@ -10,14 +10,20 @@ public class HaloController : MonoBehaviour
     public const string ArenaVarName = "Arena";
     public const int ArenaPlatforms = 2;
 
+    public const string CustomHaloName = "Halo (Mahoraga)";
+
     private const float PlatformBlend = 1.5f;
     private const float StepSoundOffset = -0.1f;
+
+    private Transform _original;
+    private SpriteRenderer _originalSr;
 
     private SpriteRenderer _sr;
     private Sprite _originalSprite;
     private Sprite _customSprite;
     private Color _originalColor;
     private Vector3 _baseScale;
+    private int _baseSortOrder;
 
     private PlayMakerFSM _phaseFsm;
     private FsmInt _arena;
@@ -26,6 +32,7 @@ public class HaloController : MonoBehaviour
     private float _scaleMul = 1f;
 
     private float _angle;
+    private float _appliedOriginalMul = 1f;
     private float _stepT;
     private float _stepFrom;
     private float _stepTo;
@@ -34,13 +41,103 @@ public class HaloController : MonoBehaviour
     private float _stepHitT;
     private float _lastStepDegrees = -1f;
 
-    public static HaloController Attach(GameObject haloGO)
+    public GameObject CustomHaloObject { get; private set; }
+
+    public static HaloController Ensure(GameObject originalGO)
     {
-        if (haloGO == null) return null;
+        if (originalGO == null) return null;
 
-        if (haloGO.GetComponent<HaloController>() != null) return null;
+        Transform boss = originalGO.transform.parent;
+        if (boss == null) return null;
 
-        return haloGO.AddComponent<HaloController>();
+        HaloController existing = FindCustom(boss);
+        if (existing != null)
+        {
+            existing.BindOriginal(originalGO);
+            return existing;
+        }
+
+        GameObject clone = CreateClone(originalGO);
+        if (clone == null) return null;
+
+        HaloController ctrl = clone.AddComponent<HaloController>();
+        ctrl.CustomHaloObject = clone;
+        ctrl.BindOriginal(originalGO);
+        return ctrl;
+    }
+
+    private static HaloController FindCustom(Transform boss)
+    {
+        Transform found = boss.Find(CustomHaloName);
+        if (found == null) return null;
+
+        return found.GetComponent<HaloController>();
+    }
+
+    private static GameObject CreateClone(GameObject originalGO)
+    {
+        GameObject clone;
+        try
+        {
+            clone = Instantiate(originalGO);
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (clone == null) return null;
+
+        clone.name = CustomHaloName;
+
+        Transform parent = originalGO.transform.parent;
+        if (parent != null)
+        {
+            clone.transform.SetParent(parent, false);
+            clone.transform.localPosition   = originalGO.transform.localPosition;
+            clone.transform.localRotation   = originalGO.transform.localRotation;
+            clone.transform.localScale      = originalGO.transform.localScale;
+        }
+
+        StripComponents(clone);
+        return clone;
+    }
+
+    private static void StripComponents(GameObject clone)
+    {
+        Component[] components = clone.GetComponents<Component>();
+        for (int i = components.Length - 1; i >= 0; i--)
+        {
+            Component component = components[i];
+            if (component == null) continue;
+
+            if (component is Transform) continue;
+            if (component is SpriteRenderer) continue;
+            if (component is HaloController) continue;
+
+            Destroy(component);
+        }
+
+        foreach (Collider2D collider in clone.GetComponentsInChildren<Collider2D>(true))
+        {
+            if (collider != null) Destroy(collider.gameObject == clone ? (Component)collider : collider.gameObject);
+        }
+    }
+
+    public void BindOriginal(GameObject originalGO)
+    {
+        if (originalGO == null)
+        {
+            _original  = null;
+            _originalSr = null;
+            return;
+        }
+
+        if (_original == originalGO.transform) return;
+
+        _original   = originalGO.transform;
+        _originalSr = originalGO.GetComponent<SpriteRenderer>();
+        _baseSortOrder = _originalSr != null ? _originalSr.sortingOrder : 0;
     }
 
     private void Awake()
@@ -48,7 +145,7 @@ public class HaloController : MonoBehaviour
         _sr = GetComponent<SpriteRenderer>();
         if (_sr == null)
         {
-            Debug.Log("[mahoraga-halo] Halo has no SpriteRenderer.");
+            Debug.Log("[mahoraga-halo] Custom halo has no SpriteRenderer.");
             enabled = false;
             return;
         }
@@ -56,13 +153,17 @@ public class HaloController : MonoBehaviour
         _originalSprite = _sr.sprite;
         _originalColor  = _sr.color;
         _baseScale      = transform.localScale;
+        _baseSortOrder  = _sr.sortingOrder;
         _angle          = transform.localEulerAngles.z;
         _scaleMul       = 1f;
+
+        if (_originalSr != null) _baseSortOrder = _originalSr.sortingOrder;
 
         LocatePhaseVariable();
         LogPhaseHook();
 
-        Active.Add(this);
+        if (!Active.Contains(this)) Active.Add(this);
+
         ApplyCustomSprite();
     }
 
@@ -105,6 +206,26 @@ public class HaloController : MonoBehaviour
         Active.Remove(this);
     }
 
+    private Vector3 OriginalScale()
+    {
+        if (_original == null) return _baseScale;
+        return _original.localScale;
+    }
+
+    private void MirrorPosition()
+    {
+        if (_original == null) return;
+
+        transform.localPosition = _original.localPosition;
+    }
+
+    private void ApplyLayering()
+    {
+        if (_sr == null) return;
+
+        if (_sr.sortingOrder != _baseSortOrder) _sr.sortingOrder = _baseSortOrder;
+    }
+
     private void ApplyCustomSprite()
     {
         if (_sr == null) return;
@@ -118,9 +239,8 @@ public class HaloController : MonoBehaviour
             return;
         }
 
-        if (_originalSprite == null) return;
-
-        float ppu = tex.width / Mathf.Max(0.0001f, _originalSprite.bounds.size.x);
+        float ppu = OriginalPpu(tex);
+        if (ppu <= 0f) return;
 
         Sprite previous = _customSprite;
 
@@ -132,12 +252,32 @@ public class HaloController : MonoBehaviour
 
         _sr.sprite = _customSprite;
 
-if (previous != null) Destroy(previous);
+        if (previous != null) Destroy(previous);
+    }
+
+    private float OriginalPpu(Texture2D tex)
+    {
+        Bounds bounds = ReferenceBounds();
+
+        float reference = bounds.size.x;
+        if (reference < 0.0001f) reference = bounds.size.y;
+        if (reference < 0.0001f) return 0f;
+
+        return tex.width / reference;
+    }
+
+    private Bounds ReferenceBounds()
+    {
+        if (_originalSprite != null) return _originalSprite.bounds;
+
+        if (_originalSr != null && _originalSr.sprite != null) return _originalSr.sprite.bounds;
+
+        return new Bounds(Vector3.zero, Vector3.one);
     }
 
     private void LogPhaseHook()
     {
-        RadianceHalo.Trace("Halo attached: arena " + (_arena != null ? _arena.Value.ToString() : "?")
+        RadianceHalo.Trace("Custom halo ready: arena " + (_arena != null ? _arena.Value.ToString() : "?")
             + ", platforms " + _platformActive
             + ", phaseFsm " + (_phaseFsm != null));
     }
@@ -160,20 +300,75 @@ if (previous != null) Destroy(previous);
         {
             _platformActive = false;
             ReassertSprite(_originalSprite);
-            if (_sr != null) _sr.color = _originalColor;
-            transform.localScale = _baseScale;
+            if (_sr != null)
+            {
+                _sr.color = _originalColor;
+                if (_sr.enabled) _sr.enabled = false;
+            }
+            ForceOriginalVisible();
             return;
         }
 
-        ApplyCustomSprite();
+        bool wantCustom = s.Mode != HaloMode.OriginalOnly;
+        bool wantOriginal = s.Mode != HaloMode.CustomOnly;
 
-        UpdatePhase(dt, s);
+        ApplyVisibility(wantCustom, wantOriginal);
 
-        TickStepped(dt, s, s.Reverse ? -1f : 1f);
+        if (wantCustom)
+        {
+            ApplyCustomSprite();
+            ApplyLayering();
+            MirrorPosition();
 
-        ApplyRotation();
-        ApplyScale(dt, s);
-        ApplyAlpha(dt, s);
+            UpdatePhase(dt, s);
+
+            TickStepped(dt, s, s.Reverse ? -1f : 1f);
+
+            ApplyRotation();
+            ApplyScale(dt, s);
+            ApplyAlpha(dt, s);
+        }
+
+        ApplyOriginalAlpha(s.OriginalAlpha);
+    }
+
+    private void ApplyVisibility(bool customVisible, bool originalVisible)
+    {
+        if (_sr != null && _sr.enabled != customVisible) _sr.enabled = customVisible;
+
+        SetOriginalVisible(originalVisible);
+    }
+
+    private void SetOriginalVisible(bool visible)
+    {
+        if (_originalSr == null) return;
+
+        if (_originalSr.enabled != visible) _originalSr.enabled = visible;
+    }
+
+    private void ApplyOriginalAlpha(float multiplier)
+    {
+        if (_originalSr == null || _originalSr.enabled == false) return;
+
+        float mul = Mathf.Clamp01(multiplier);
+
+        Color c = _originalSr.color;
+
+        float baseAlpha = _appliedOriginalMul > 0.0001f
+            ? Mathf.Clamp01(c.a / _appliedOriginalMul)
+            : c.a;
+
+        float target = Mathf.Clamp01(baseAlpha * mul);
+        if (Mathf.Abs(c.a - target) > 0.001f)
+            _originalSr.color = new Color(c.r, c.g, c.b, target);
+
+        _appliedOriginalMul = mul;
+    }
+
+    private void ForceOriginalVisible()
+    {
+        if (_originalSr == null) return;
+        if (!_originalSr.enabled) _originalSr.enabled = true;
     }
 
     private void TickStepped(float dt, HaloSettings s, float dir)
@@ -250,14 +445,16 @@ if (previous != null) Destroy(previous);
 
         _scaleMul = Mathf.Lerp(_scaleMul, target, 1f - Mathf.Exp(-rate * dt));
 
+        Vector3 baseScale = OriginalScale();
         float mul = s.Scale * _scaleMul;
 
-        transform.localScale = new Vector3(_baseScale.x * mul, _baseScale.y * mul, _baseScale.z);
+        transform.localScale = new Vector3(baseScale.x * mul, baseScale.y * mul, baseScale.z);
     }
 
     private void ApplyAlpha(float dt, HaloSettings s)
     {
         if (_sr == null) return;
+
         Color c = _sr.color;
         c.a = Mathf.Lerp(c.a, s.Alpha, Mathf.Clamp01(dt * 6f));
         _sr.color = c;
@@ -270,10 +467,15 @@ if (previous != null) Destroy(previous);
 
         if (_sr != null)
         {
-            _sr.sprite = _originalSprite;
+            _sr.sprite = _customSprite != null ? _customSprite : _originalSprite;
             _sr.color  = _originalColor;
+            _sr.sortingOrder = _baseSortOrder;
+            if (!_sr.enabled) _sr.enabled = true;
         }
+
         transform.localRotation = Quaternion.Euler(0f, 0f, _angle);
         transform.localScale    = _baseScale;
+
+        ForceOriginalVisible();
     }
 }

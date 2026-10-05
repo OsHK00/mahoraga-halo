@@ -11,9 +11,9 @@
     <Product>mahoraga-halo</Product>
     <Description>A Hollow Knight mod that reskins and re-animates the Absolute Radiance halo.</Description>
     <Copyright>Copyright © 2023</Copyright>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
-    <FileVersion>1.0.2</FileVersion>
-    <Version>1.0.2</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0</FileVersion>
+    <Version>1.1.0</Version>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
