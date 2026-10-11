@@ -14,6 +14,8 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
     public const string SceneName   = "GG_Radiance";
     public const string TextureName = "halo.png";
 
+    public const float MenuBlockSeconds = 0.5f;
+
     public static RadianceHalo Instance { get; private set; }
 
     public static void Trace(string message)
@@ -26,6 +28,8 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
 
     private static Menu _menu;
     private static bool _built;
+    private static bool _updating;
+    private static string _visibilityKey;
     private static readonly Dictionary<string, Element> Rows = new Dictionary<string, Element>();
 
     private static readonly string[] PhaseRows = { "optPlatformScale" };
@@ -35,7 +39,7 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
 
     public RadianceHalo() : base(ModName)
     {
-        HaloConfig.SaveHook = OnSaveGlobal;
+        HaloConfig.SaveHook = SaveGlobalSettings;
     }
 
     public override string GetVersion()
@@ -48,6 +52,8 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
     public override void Initialize()
     {
         Instance = this;
+
+        LogBuildStamp();
 
         HaloTexture = LoadPng(TextureName);
         if (HaloTexture == null)
@@ -78,18 +84,25 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
         return HaloConfig.Current;
     }
 
+    public static void FlushSettings()
+    {
+        HaloConfig.Flush();
+    }
+
     public bool ToggleButtonInsideMenu => false;
 
     public MenuScreen GetMenuScreen(MenuScreen modListMenu, ModToggleDelegates? toggleDelegates)
     {
         try
         {
+            HaloConfig.BlockInputFor(MenuBlockSeconds);
+
             if (_menu == null) _menu = BuildMenu();
 
             MenuScreen screen = _menu.GetMenuScreen(modListMenu);
             _built = true;
 
-            ApplyVisibility();
+            ApplyRowVisibility();
 
             return screen;
         }
@@ -219,7 +232,7 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
         }
     }
 
-    private static void ApplyVisibility()
+    private static void ApplyRowVisibility()
     {
         if (!_built || _menu == null) return;
 
@@ -227,13 +240,45 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
 
         SetVisible(PhaseRows, s.PhaseAware);
         SetVisible(SoundRows, s.StepSound);
+    }
 
-        _menu.Update();
+    private static void ApplyVisibility()
+    {
+        if (!_built || _menu == null) return;
+
+        HaloSettings s = HaloConfig.Current;
+
+        string key = s.PhaseAware + "|" + s.StepSound;
+        if (key == _visibilityKey) return;
+        _visibilityKey = key;
+
+        if (_updating) return;
+
+        _updating = true;
+
+        try
+        {
+            ApplyRowVisibility();
+
+            _menu.Update();
+        }
+        finally
+        {
+            _updating = false;
+        }
     }
 
     private static void Set(Action<HaloSettings> apply)
     {
-        apply(HaloConfig.Current);
+        if (HaloConfig.InputBlocked) return;
+
+        HaloSettings s = HaloConfig.Current;
+        HaloSettings before = s.Clone();
+
+        apply(s);
+
+        if (s.Diff(before) == null) return;
+
         ApplyVisibility();
         HaloConfig.NotifyChanged();
     }
@@ -252,6 +297,25 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
             if (clone != null) UnityEngine.Object.Destroy(clone);
         }
         HaloController.Active.Clear();
+    }
+
+    private void LogBuildStamp()
+    {
+        string stamp = "unknown";
+
+        try
+        {
+            string path = Assembly.GetExecutingAssembly().Location;
+            stamp = File.GetLastWriteTime(path).ToString("yyyy-MM-dd HH:mm:ss");
+        }
+        catch (Exception e)
+        {
+            stamp = "unavailable (" + e.GetType().Name + ")";
+        }
+
+        Trace("Running " + ModName + " v" + GetVersion()
+            + ", dll built " + stamp
+            + ", loaded from " + Assembly.GetExecutingAssembly().Location);
     }
 
     private Texture2D LoadPng(string fileName)
@@ -329,7 +393,36 @@ public class RadianceHalo : Mod, ICustomMenuMod, IGlobalSettings<HaloSettings>
 
 internal class HaloWatchdog : MonoBehaviour
 {
+    public const float SceneBlockSeconds = 1f;
+
     private float _timer;
+
+    private void OnEnable()
+    {
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)
+    {
+        BlockSettingsWrites();
+    }
+
+    private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        BlockSettingsWrites();
+    }
+
+    private static void BlockSettingsWrites()
+    {
+        HaloConfig.BlockInputFor(SceneBlockSeconds);
+    }
 
     private void Update()
     {
@@ -346,5 +439,15 @@ internal class HaloWatchdog : MonoBehaviour
         if (halo == null) return;
 
         HaloController.Ensure(halo.gameObject);
+    }
+
+    private void LateUpdate()
+    {
+        HaloConfig.Flush();
+    }
+
+    private void OnApplicationQuit()
+    {
+        HaloConfig.Flush();
     }
 }
